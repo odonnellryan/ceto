@@ -1,0 +1,6 @@
+.env
+new_offerings*
+/offer_pdfs
+/offer_pdfs/*
+/green_data/
+/green_data/*
