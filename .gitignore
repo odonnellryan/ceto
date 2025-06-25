@@ -4,3 +4,5 @@ new_offerings*
 /offer_pdfs/*
 /green_data/
 /green_data/*
+.idea
+processed_pdf_hashes.json
