@@ -170,6 +170,76 @@ def fetch_unfulfilled_order_quantities(all_variant_ids):
     return unfulfilled_quantities
 
 
+def fetch_latest_fulfilled_batch_quantities(all_variant_ids):
+    """If no open orders are found, return quantities from the most recent
+    fulfillment batch. All orders that share the same fulfillment date are
+    aggregated together."""
+
+    batch_quantities = defaultdict(int)
+    endpoint = (
+        "orders.json?status=any&limit=250&fields=id,line_items,fulfillments"
+    )
+    headers = get_shopify_headers()
+    fulfillments_by_date = defaultdict(list)
+
+    while endpoint:
+        relative_endpoint = endpoint.split(
+            f"/admin/api/{SHOPIFY_API_VERSION}/"
+        )[-1]
+        url = build_shopify_url(relative_endpoint)
+        try:
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            orders_on_page = data.get("orders", [])
+            if not orders_on_page:
+                break
+            for order in orders_on_page:
+                fulfillments = order.get("fulfillments", [])
+                if not fulfillments:
+                    continue
+                created_at = fulfillments[0].get("created_at")
+                if not created_at:
+                    continue
+                date_key = created_at[:10]
+                fulfillments_by_date[date_key].append(order)
+
+            link_header = response.headers.get("Link")
+            endpoint = None
+            if link_header:
+                links = link_header.split(',')
+                for link in links:
+                    parts = link.split(';')
+                    if 'rel="next"' in parts[1]:
+                        next_url = parts[0].strip()[1:-1]
+                        endpoint = next_url.split(
+                            f"/admin/api/{SHOPIFY_API_VERSION}/"
+                        )[-1]
+                        break
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching fulfilled orders: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"Response content: {e.response.text}")
+            return None
+        except ValueError as e:
+            print(f"Error decoding JSON for fulfilled orders: {e}")
+            return None
+
+    if not fulfillments_by_date:
+        return batch_quantities
+
+    latest_date = max(fulfillments_by_date.keys())
+
+    for order in fulfillments_by_date[latest_date]:
+        for item in order.get("line_items", []):
+            variant_id = item.get("variant_id")
+            qty = item.get("quantity", 0)
+            if variant_id and variant_id in all_variant_ids and qty > 0:
+                batch_quantities[variant_id] += qty
+
+    return batch_quantities
+
+
 def get_int_input(prompt_message, default_value=0):
     while True:
         val_str = input(prompt_message).strip()
@@ -224,6 +294,17 @@ if __name__ == "__main__":
     if shopify_unfulfilled_quantities is None:
         print("Could not retrieve order quantities. Exiting.")
         exit()
+    if not shopify_unfulfilled_quantities:
+        print("No open orders found. Checking latest fulfillment batch...")
+        shopify_unfulfilled_quantities = fetch_latest_fulfilled_batch_quantities(
+            all_variant_ids_from_products
+        )
+        if shopify_unfulfilled_quantities is None:
+            print("Could not retrieve fulfilled order quantities. Exiting.")
+            exit()
+        if not shopify_unfulfilled_quantities:
+            print("No fulfilled orders found to use for roast calculations.")
+            exit()
 
     roast_plan_data = {}
 
