@@ -26,7 +26,8 @@ URL_LIST = [
     'https://royalcoffee.com/50lb-green-coffee-royal-gems/',
     'https://www.cafeimports.com/north-america/offerings?new=yes',
     'https://www.croptocup.com/forward-offers/',
-    'https://www.genuineorigin.com/greencoffee?show=100&item-warehouse=East-Coast-PA'
+    # 'https://www.genuineorigin.com/greencoffee?show=100&item-warehouse=East-Coast-PA',
+    'https://thecaptainscoffee.com/collections/green-coffee?sort_by=created-descending',
 ]
 
 

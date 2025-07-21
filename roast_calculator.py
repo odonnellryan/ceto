@@ -381,9 +381,12 @@ if __name__ == "__main__":
 
     # --- Calculations and Final Output ---
     print("\n\n--- FINAL ROASTING CALCULATIONS ---")
+
     print(f"(Assuming {ROAST_LOSS_PERCENTAGE * 100:.0f}% roasting loss)")
 
     print("\n\nProduct\tRoasted Needed")
+
+    total_bags = 0
 
     if not roast_plan_data:
         print("No products were selected or had demand for roasting.")
@@ -396,8 +399,11 @@ if __name__ == "__main__":
                 grams_per_item = v_data['grams_per_item']
                 if grams_per_item and grams_per_item > 0:
                     total_units = v_data['shopify_order_qty'] + v_data['sample_qty_units'] + v_data['cafe_qty_units']
+                    if grams_per_item > 50:
+                        total_bags += total_units
                     # add some buffer as we always put in at least five extra grams on average, and toss some away
-                    total_roasted_grams_for_product += total_units * grams_per_item + 8
+                    if total_units:
+                        total_roasted_grams_for_product += total_units * grams_per_item + 8
                 elif v_data['shopify_order_qty'] > 0 or v_data['sample_qty_units'] > 0 or v_data['cafe_qty_units'] > 0:
                     # Only warn if there were quantities but no weight
                     print(
@@ -406,7 +412,7 @@ if __name__ == "__main__":
             data['total_roasted_grams_product'] = total_roasted_grams_for_product
 
             print(f"{product_title}\t{total_roasted_grams_for_product:,.2f}")
-
+        print(f"\n\nTotal bags: {total_bags}")
         print(f"\n\n--- Label Needs --- DOES NOT INCLUDE WHOLESALE ---")
         for product in roast_plan_data.values():
             hit_first = False
