@@ -78,61 +78,84 @@ def fetch_all_products() -> dict:
     return products
 
 
-def fetch_shipping_labels(order_id: int) -> list[dict]:
-    """Retrieve shipping label information for the given order using GraphQL."""
-
+def fetch_all_shipping_labels() -> dict[int, list[dict]]:
+    """Retrieve shipping label information for all orders using GraphQL pages."""
     url = build_shopify_url("graphql.json")
     headers = get_shopify_headers()
 
     query = """
-    query($orderId: ID!) {
-      order(id: $orderId) {
-        fulfillments {
-          shippingLabel {
-            shippingCost {
-              amount
-              currencyCode
+    query ($cursor: String) {
+      orders(first: 50, after: $cursor) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        edges {
+          node {
+            id
+            fulfillments {
+              shippingLabel {
+                shippingCost {
+                  amount
+                  currencyCode
+                }
+                carrier
+                service
+              }
             }
-            carrier
-            service
           }
         }
       }
     }
     """
 
-    variables = {"orderId": f"gid://shopify/Order/{order_id}"}
-    response = requests.post(
-        url, headers=headers, json={"query": query, "variables": variables}
-    )
-    if response.status_code == 404:
-        return []
-    response.raise_for_status()
+    labels_map: dict[int, list[dict]] = {}
+    cursor = None
 
-    data = response.json().get("data", {})
-    order_data = data.get("order") or {}
-    shipping_labels = []
-
-    for fulfillment in order_data.get("fulfillments", []):
-        label = fulfillment.get("shippingLabel")
-        if not label:
-            continue
-        cost = label.get("shippingCost", {})
-        amount = cost.get("amount")
-        try:
-            amount_val = float(amount) if amount is not None else 0.0
-        except (TypeError, ValueError):
-            amount_val = 0.0
-        shipping_labels.append(
-            {
-                "price": amount_val,
-                "currencyCode": cost.get("currencyCode"),
-                "carrier": label.get("carrier"),
-                "service": label.get("service"),
-            }
+    while True:
+        variables = {"cursor": cursor}
+        response = requests.post(
+            url, headers=headers, json={"query": query, "variables": variables}
         )
+        response.raise_for_status()
 
-    return shipping_labels
+        orders_data = response.json().get("data", {}).get("orders", {})
+        for edge in orders_data.get("edges", []):
+            node = edge.get("node", {})
+            order_gid = node.get("id")
+            if not order_gid:
+                continue
+            try:
+                order_id = int(order_gid.split("/")[-1])
+            except (TypeError, ValueError):
+                continue
+
+            for fulfillment in node.get("fulfillments", []):
+                label = fulfillment.get("shippingLabel")
+                if not label:
+                    continue
+                cost = label.get("shippingCost", {})
+                amount = cost.get("amount")
+                try:
+                    amount_val = float(amount) if amount is not None else 0.0
+                except (TypeError, ValueError):
+                    amount_val = 0.0
+
+                labels_map.setdefault(order_id, []).append(
+                    {
+                        "price": amount_val,
+                        "currencyCode": cost.get("currencyCode"),
+                        "carrier": label.get("carrier"),
+                        "service": label.get("service"),
+                    }
+                )
+
+        page_info = orders_data.get("pageInfo", {})
+        if not page_info.get("hasNextPage"):
+            break
+        cursor = page_info.get("endCursor")
+
+    return labels_map
 
 
 def collect_metrics(orders: list[dict], products: dict) -> dict:
@@ -141,6 +164,8 @@ def collect_metrics(orders: list[dict], products: dict) -> dict:
     free_shipping_cost = 0.0
     product_revenue = defaultdict(float)
     order_shipping_rows = []
+
+    labels_map = fetch_all_shipping_labels()
 
     for order in orders:
         created = order.get("created_at")
@@ -151,7 +176,7 @@ def collect_metrics(orders: list[dict], products: dict) -> dict:
             price = float(sl.get("price", 0.0))
             total_paid_shipping += price
 
-        labels = fetch_shipping_labels(order_id)
+        labels = labels_map.get(order_id, [])
         total_label_cost = 0.0
         label_details = []
         for lbl in labels:
