@@ -79,13 +79,27 @@ def fetch_all_products() -> dict:
 
 
 def fetch_all_shipping_labels() -> dict[int, list[dict]]:
-    """Retrieve shipping label information for all orders using GraphQL pages."""
-    url = build_shopify_url("graphql.json")
+    """Retrieve shipping label information for all orders.
+
+    Shopify exposes a dedicated ShippingLabels GraphQL query that is not part of
+    the public Admin API.  If the ``SHOPIFY_SHIPPING_LABELS_URL`` environment
+    variable is defined, this function will query that endpoint.  Otherwise it
+    falls back to the standard ``graphql.json`` Admin API endpoint.
+    """
+    url = os.getenv("SHOPIFY_SHIPPING_LABELS_URL") or build_shopify_url(
+        "graphql.json"
+    )
     headers = get_shopify_headers()
 
     query = """
-    query ($cursor: String) {
-      orders(first: 50, after: $cursor) {
+    query ShippingLabels($cursor: String) {
+      shippingLabels(
+        first: 100,
+        after: $cursor,
+        query: "NOT status:draft AND NOT status:archived AND NOT status:pending_purchase AND shipping_label_purchase_session_id:* AND (printed:true NOT status:cancelled)",
+        sortKey: SHIPPING_LABEL_PURCHASE_SESSION_ID,
+        reverse: true
+      ) {
         pageInfo {
           hasNextPage
           endCursor
@@ -93,15 +107,14 @@ def fetch_all_shipping_labels() -> dict[int, list[dict]]:
         edges {
           node {
             id
-            fulfillments {
-              shippingLabel {
-                shippingCost {
-                  amount
-                  currencyCode
-                }
-                carrier
-                service
-              }
+            order {
+              id
+            }
+            carrierCode
+            serviceName
+            totalPrice {
+              amount
+              currencyCode
             }
           }
         }
@@ -119,10 +132,10 @@ def fetch_all_shipping_labels() -> dict[int, list[dict]]:
         )
         response.raise_for_status()
 
-        orders_data = response.json().get("data", {}).get("orders", {})
-        for edge in orders_data.get("edges", []):
+        labels_data = response.json().get("data", {}).get("shippingLabels", {})
+        for edge in labels_data.get("edges", []):
             node = edge.get("node", {})
-            order_gid = node.get("id")
+            order_gid = (node.get("order") or {}).get("id")
             if not order_gid:
                 continue
             try:
@@ -130,27 +143,24 @@ def fetch_all_shipping_labels() -> dict[int, list[dict]]:
             except (TypeError, ValueError):
                 continue
 
-            for fulfillment in node.get("fulfillments", []):
-                label = fulfillment.get("shippingLabel")
-                if not label:
-                    continue
-                cost = label.get("shippingCost", {})
-                amount = cost.get("amount")
-                try:
-                    amount_val = float(amount) if amount is not None else 0.0
-                except (TypeError, ValueError):
-                    amount_val = 0.0
+            cost = (node.get("totalPrice") or {}).get("amount")
+            try:
+                amount_val = float(cost) if cost is not None else 0.0
+            except (TypeError, ValueError):
+                amount_val = 0.0
 
-                labels_map.setdefault(order_id, []).append(
-                    {
-                        "price": amount_val,
-                        "currencyCode": cost.get("currencyCode"),
-                        "carrier": label.get("carrier"),
-                        "service": label.get("service"),
-                    }
-                )
+            labels_map.setdefault(order_id, []).append(
+                {
+                    "price": amount_val,
+                    "currencyCode": (node.get("totalPrice") or {}).get(
+                        "currencyCode"
+                    ),
+                    "carrier": node.get("carrierCode"),
+                    "service": node.get("serviceName"),
+                }
+            )
 
-        page_info = orders_data.get("pageInfo", {})
+        page_info = labels_data.get("pageInfo", {})
         if not page_info.get("hasNextPage"):
             break
         cursor = page_info.get("endCursor")
