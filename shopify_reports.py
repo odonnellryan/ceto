@@ -79,15 +79,60 @@ def fetch_all_products() -> dict:
 
 
 def fetch_shipping_labels(order_id: int) -> list[dict]:
-    """Retrieve shipping labels purchased for the given order."""
-    endpoint = f"orders/{order_id}/shipping_labels.json"
+    """Retrieve shipping label information for the given order using GraphQL."""
+
+    url = build_shopify_url("graphql.json")
     headers = get_shopify_headers()
-    url = build_shopify_url(endpoint)
-    response = requests.get(url, headers=headers)
+
+    query = """
+    query($orderId: ID!) {
+      order(id: $orderId) {
+        fulfillments {
+          shippingLabel {
+            shippingCost {
+              amount
+              currencyCode
+            }
+            carrier
+            service
+          }
+        }
+      }
+    }
+    """
+
+    variables = {"orderId": f"gid://shopify/Order/{order_id}"}
+    response = requests.post(
+        url, headers=headers, json={"query": query, "variables": variables}
+    )
     if response.status_code == 404:
         return []
     response.raise_for_status()
-    return response.json().get("shipping_labels", [])
+
+    data = response.json().get("data", {})
+    order_data = data.get("order") or {}
+    shipping_labels = []
+
+    for fulfillment in order_data.get("fulfillments", []):
+        label = fulfillment.get("shippingLabel")
+        if not label:
+            continue
+        cost = label.get("shippingCost", {})
+        amount = cost.get("amount")
+        try:
+            amount_val = float(amount) if amount is not None else 0.0
+        except (TypeError, ValueError):
+            amount_val = 0.0
+        shipping_labels.append(
+            {
+                "price": amount_val,
+                "currencyCode": cost.get("currencyCode"),
+                "carrier": label.get("carrier"),
+                "service": label.get("service"),
+            }
+        )
+
+    return shipping_labels
 
 
 def collect_metrics(orders: list[dict], products: dict) -> dict:
