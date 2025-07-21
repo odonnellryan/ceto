@@ -78,104 +78,12 @@ def fetch_all_products() -> dict:
     return products
 
 
-def fetch_all_shipping_labels() -> dict[int, list[dict]]:
-    """Retrieve shipping label information for all orders.
-
-    Shopify exposes a dedicated ShippingLabels GraphQL query that is not part of
-    the public Admin API.  If the ``SHOPIFY_SHIPPING_LABELS_URL`` environment
-    variable is defined, this function will query that endpoint.  Otherwise it
-    falls back to the standard ``graphql.json`` Admin API endpoint.
-    """
-    url = os.getenv("SHOPIFY_SHIPPING_LABELS_URL") or build_shopify_url(
-        "graphql.json"
-    )
-    headers = get_shopify_headers()
-
-    query = """
-    query ShippingLabels($cursor: String) {
-      shippingLabels(
-        first: 100,
-        after: $cursor,
-        query: "NOT status:draft AND NOT status:archived AND NOT status:pending_purchase AND shipping_label_purchase_session_id:* AND (printed:true NOT status:cancelled)",
-        sortKey: SHIPPING_LABEL_PURCHASE_SESSION_ID,
-        reverse: true
-      ) {
-        pageInfo {
-          hasNextPage
-          endCursor
-        }
-        edges {
-          node {
-            id
-            order {
-              id
-            }
-            carrierCode
-            serviceName
-            totalPrice {
-              amount
-              currencyCode
-            }
-          }
-        }
-      }
-    }
-    """
-
-    labels_map: dict[int, list[dict]] = {}
-    cursor = None
-
-    while True:
-        variables = {"cursor": cursor}
-        response = requests.post(
-            url, headers=headers, json={"query": query, "variables": variables}
-        )
-        response.raise_for_status()
-
-        labels_data = response.json().get("data", {}).get("shippingLabels", {})
-        for edge in labels_data.get("edges", []):
-            node = edge.get("node", {})
-            order_gid = (node.get("order") or {}).get("id")
-            if not order_gid:
-                continue
-            try:
-                order_id = int(order_gid.split("/")[-1])
-            except (TypeError, ValueError):
-                continue
-
-            cost = (node.get("totalPrice") or {}).get("amount")
-            try:
-                amount_val = float(cost) if cost is not None else 0.0
-            except (TypeError, ValueError):
-                amount_val = 0.0
-
-            labels_map.setdefault(order_id, []).append(
-                {
-                    "price": amount_val,
-                    "currencyCode": (node.get("totalPrice") or {}).get(
-                        "currencyCode"
-                    ),
-                    "carrier": node.get("carrierCode"),
-                    "service": node.get("serviceName"),
-                }
-            )
-
-        page_info = labels_data.get("pageInfo", {})
-        if not page_info.get("hasNextPage"):
-            break
-        cursor = page_info.get("endCursor")
-
-    return labels_map
 
 
 def collect_metrics(orders: list[dict], products: dict) -> dict:
     shipping_paid_by_customers = 0.0
-    shipping_cost_to_us = 0.0
-    free_shipping_cost = 0.0
     product_revenue = defaultdict(float)
     order_shipping_rows = []
-
-    labels_map = fetch_all_shipping_labels()
 
     for order in orders:
         created = order.get("created_at")
@@ -186,37 +94,14 @@ def collect_metrics(orders: list[dict], products: dict) -> dict:
             price = float(sl.get("price", 0.0))
             total_paid_shipping += price
 
-        labels = labels_map.get(order_id, [])
-        total_label_cost = 0.0
-        label_details = []
-        for lbl in labels:
-            cost = 0.0
-            for key in ("total_price", "price", "label_price", "amount"):
-                val = lbl.get(key)
-                if val is not None:
-                    try:
-                        cost = float(val)
-                        break
-                    except (TypeError, ValueError):
-                        pass
-            total_label_cost += cost
-            carrier = lbl.get("carrier_identifier") or lbl.get("carrier") or ""
-            service = lbl.get("service_code") or lbl.get("service") or ""
-            label_details.append(f"{carrier}-{service}: {cost}")
-
-        if total_paid_shipping == 0 and total_label_cost > 0:
-            free_shipping_cost += total_label_cost
-
         shipping_paid_by_customers += total_paid_shipping
-        shipping_cost_to_us += total_label_cost
-        order_shipping_rows.append({
-            "order_id": order_id,
-            "created_at": created,
-            "shipping_paid_by_customer": total_paid_shipping,
-            "shipping_cost": total_label_cost,
-            "shipping_discount": total_label_cost - total_paid_shipping,
-            "label_details": "; ".join(label_details),
-        })
+        order_shipping_rows.append(
+            {
+                "order_id": order_id,
+                "created_at": created,
+                "shipping_paid_by_customer": total_paid_shipping,
+            }
+        )
 
         for item in order.get("line_items", []):
             product_id = item.get("product_id")
@@ -239,9 +124,6 @@ def collect_metrics(orders: list[dict], products: dict) -> dict:
         "total_revenue": sum(float(o.get("total_price", 0.0)) for o in orders),
         "total_discounts": sum(float(o.get("total_discounts", 0.0)) for o in orders),
         "shipping_paid_by_customers": shipping_paid_by_customers,
-        "shipping_cost": shipping_cost_to_us,
-        "shipping_paid_for_free": free_shipping_cost,
-        "shipping_profit_or_loss": shipping_paid_by_customers - shipping_cost_to_us,
         "average_order_value": (sum(float(o.get("total_price", 0.0)) for o in orders) / len(orders)) if orders else 0.0,
     }
 
