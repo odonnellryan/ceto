@@ -78,6 +78,18 @@ def fetch_all_products() -> dict:
     return products
 
 
+def fetch_shipping_labels(order_id: int) -> list[dict]:
+    """Retrieve shipping labels purchased for the given order."""
+    endpoint = f"orders/{order_id}/shipping_labels.json"
+    headers = get_shopify_headers()
+    url = build_shopify_url(endpoint)
+    response = requests.get(url, headers=headers)
+    if response.status_code == 404:
+        return []
+    response.raise_for_status()
+    return response.json().get("shipping_labels", [])
+
+
 def collect_metrics(orders: list[dict], products: dict) -> dict:
     shipping_paid_by_customers = 0.0
     shipping_cost_to_us = 0.0
@@ -90,22 +102,40 @@ def collect_metrics(orders: list[dict], products: dict) -> dict:
         order_id = order.get("id")
         lines = order.get("shipping_lines", [])
         total_paid_shipping = 0.0
-        total_cost_shipping = 0.0
         for sl in lines:
             price = float(sl.get("price", 0.0))
-            cost = float(sl.get("original_price", sl.get("price", 0.0)))
             total_paid_shipping += price
-            total_cost_shipping += cost
-            if price == 0:
-                free_shipping_cost += cost
+
+        labels = fetch_shipping_labels(order_id)
+        total_label_cost = 0.0
+        label_details = []
+        for lbl in labels:
+            cost = 0.0
+            for key in ("total_price", "price", "label_price", "amount"):
+                val = lbl.get(key)
+                if val is not None:
+                    try:
+                        cost = float(val)
+                        break
+                    except (TypeError, ValueError):
+                        pass
+            total_label_cost += cost
+            carrier = lbl.get("carrier_identifier") or lbl.get("carrier") or ""
+            service = lbl.get("service_code") or lbl.get("service") or ""
+            label_details.append(f"{carrier}-{service}: {cost}")
+
+        if total_paid_shipping == 0 and total_label_cost > 0:
+            free_shipping_cost += total_label_cost
+
         shipping_paid_by_customers += total_paid_shipping
-        shipping_cost_to_us += total_cost_shipping
+        shipping_cost_to_us += total_label_cost
         order_shipping_rows.append({
             "order_id": order_id,
             "created_at": created,
             "shipping_paid_by_customer": total_paid_shipping,
-            "shipping_cost": total_cost_shipping,
-            "shipping_discount": total_cost_shipping - total_paid_shipping,
+            "shipping_cost": total_label_cost,
+            "shipping_discount": total_label_cost - total_paid_shipping,
+            "label_details": "; ".join(label_details),
         })
 
         for item in order.get("line_items", []):
