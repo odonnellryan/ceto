@@ -6,3 +6,5 @@ new_offerings*
 /green_data/*
 .idea
 processed_pdf_hashes.json
+
+shipping_analysis.xlsx
