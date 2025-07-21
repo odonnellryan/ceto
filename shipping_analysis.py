@@ -8,7 +8,7 @@ exp = pd.read_csv(INPUT_CSV)
 
 # Filter only shipping fees
 ship = exp[exp["Product category"] == "shipping_fee"].copy()
-ship["Created at"] = pd.to_datetime(ship["Created at"])
+ship["Created at"] = pd.to_datetime(ship["Created at"]).dt.tz_localize(None)
 ship["month"] = ship["Created at"].dt.to_period("M")
 
 # Total shipping cost
