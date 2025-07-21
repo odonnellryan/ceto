@@ -80,7 +80,6 @@ def fetch_all_products() -> dict:
 
 def fetch_all_shipping_labels() -> dict[int, list[dict]]:
     """Retrieve shipping label information for all orders using GraphQL pages."""
-
     url = build_shopify_url("graphql.json")
     headers = get_shopify_headers()
 
