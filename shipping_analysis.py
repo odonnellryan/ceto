@@ -30,6 +30,7 @@ for o in orders:
             "order_id": o.get("id"),
             "created_at": pd.to_datetime(created).tz_localize(None),
             "shipping_price": shipping_price,
+            "subtotal_price": float(o.get("subtotal_price", 0.0)),
         }
     )
 
@@ -39,12 +40,30 @@ if not orders_df.empty:
     orders_df["box_fee"] = (orders_df["shipping_price"] > 0).astype(float) * BOX_COST
     orders_df["shipping_revenue"] = orders_df["shipping_price"] - orders_df["box_fee"]
 else:
-    orders_df = pd.DataFrame(columns=["order_id", "created_at", "shipping_price", "month", "box_fee", "shipping_revenue"])
+    orders_df = pd.DataFrame(
+        columns=[
+            "order_id",
+            "created_at",
+            "shipping_price",
+            "subtotal_price",
+            "month",
+            "box_fee",
+            "shipping_revenue",
+        ]
+    )
 
 shipping_revenue_est = orders_df["shipping_revenue"].sum()
 free_shipping_orders = orders_df[orders_df["shipping_revenue"] == 0]
-box_cost_free_shipping = len(free_shipping_orders[free_shipping_orders["shipping_price"] == 0]) * BOX_COST
+box_cost_free_shipping = (
+    len(free_shipping_orders[free_shipping_orders["shipping_price"] == 0]) * BOX_COST
+)
 free_shipping_cost_est = total_shipping_cost - shipping_revenue_est
+free_shipping_order_revenue = free_shipping_orders["subtotal_price"].sum()
+free_shipping_cost_pct_of_revenue = (
+    (free_shipping_cost_est / free_shipping_order_revenue) * 100
+    if free_shipping_order_revenue
+    else 0.0
+)
 
 summary_df = pd.DataFrame(
     {
@@ -52,6 +71,7 @@ summary_df = pd.DataFrame(
         "estimated_shipping_revenue": [shipping_revenue_est],
         "estimated_free_shipping_cost": [free_shipping_cost_est],
         "box_cost_for_free_shipping": [box_cost_free_shipping],
+        "free_shipping_cost_pct_of_revenue": [free_shipping_cost_pct_of_revenue],
     }
 )
 
