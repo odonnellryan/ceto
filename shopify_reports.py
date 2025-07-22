@@ -51,7 +51,17 @@ def fetch_all_orders() -> list[dict]:
                     next_url = parts[0].strip()[1:-1]
                     endpoint = next_url.split(f"/admin/api/{SHOPIFY_API_VERSION}/")[-1]
                     break
-    return orders
+    def order_filter(order):
+        filter_out = {
+            'Iced Coffee',
+            'Pina Colada',
+            'Mojito',
+            'Espresso Lemonade',
+            'Iced Latte',
+            'Hot Coffee',
+        }
+        return any([li for li in order['line_items'] if not li['name'] in filter_out])
+    return [o for o in orders if order_filter(o)]
 
 
 def fetch_all_products() -> dict:
