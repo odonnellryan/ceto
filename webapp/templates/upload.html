@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Upload Green Data</h2>
+<form method="POST" enctype="multipart/form-data">
+  {{ form.hidden_tag() }}
+  <div class="mb-3">
+    {{ form.file.label(class="form-label") }}
+    {{ form.file(class="form-control") }}
+  </div>
+  <div class="mb-3">
+    {{ form.manual_data.label(class="form-label") }}
+    {{ form.manual_data(class="form-control", rows=5) }}
+  </div>
+  <button type="submit" class="btn btn-primary">Submit</button>
+</form>
+{% endblock %}
