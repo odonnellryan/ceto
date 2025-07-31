@@ -1,14 +1,27 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>Green Data {{ green.id }}</h2>
-<p>Filename: {{ green.filename or 'Manual Entry' }}</p>
+<h2>{{ green.name or 'Coffee' }} (ID {{ green.id }})</h2>
 <p>Uploaded by: {{ green.uploader.username }}</p>
-{% if green.manual_data %}
-<pre>{{ green.manual_data }}</pre>
+<ul>
+  <li>Importer: {{ green.importer or 'N/A' }}</li>
+  <li>Country: {{ green.country or 'N/A' }}</li>
+  <li>Farm: {{ green.farm or 'N/A' }}</li>
+  <li>Variety: {{ green.variety or 'N/A' }}</li>
+  <li>Arrival: {{ green.arrival or 'N/A' }}</li>
+  <li>Size: {{ green.size_value or '' }} {{ green.size_units }}</li>
+  <li>Price: {{ green.price_value or '' }} {{ green.price_units }}</li>
+  {% if green.url %}<li>URL: <a href="{{ green.url }}">{{ green.url }}</a></li>{% endif %}
+</ul>
+{% if green.cupping_notes %}
+<p>Cupping Notes: {{ green.cupping_notes }}</p>
 {% endif %}
-{% if green.parsed_data %}
-<h3>Parsed Data</h3>
-<pre>{{ green.parsed_data }}</pre>
+{% if green.quantity_available %}
+<h3>Quantity Available</h3>
+<pre>{{ green.quantity_available }}</pre>
+{% endif %}
+{% if green.manual_data %}
+<h3>Original Text</h3>
+<pre>{{ green.manual_data }}</pre>
 {% endif %}
 
 <h3>Tasting Notes</h3>
