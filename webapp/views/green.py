@@ -2,6 +2,13 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 import os
+import json
+
+from green_scraper import (
+    extract_text_from_pdf,
+    extract_structured_data_from_pdf_text_via_ai,
+    DataClassJSONEncoder,
+)
 
 from .. import db
 from ..models import GreenData, TastingNote
@@ -23,12 +30,20 @@ def upload_green():
     ensure_upload_folder()
     if form.validate_on_submit():
         filename = None
+        parsed_json = None
+        pdf_text = None
         if form.file.data:
             filename = secure_filename(form.file.data.filename)
             save_path = os.path.join(UPLOAD_FOLDER, filename)
             form.file.data.save(save_path)
+            pdf_text = extract_text_from_pdf(save_path)
+            if pdf_text:
+                parsed_items = extract_structured_data_from_pdf_text_via_ai(pdf_text, filename)
+                if parsed_items:
+                    parsed_json = json.dumps(parsed_items, cls=DataClassJSONEncoder)
         green = GreenData(filename=filename,
-                          manual_data=form.manual_data.data,
+                          manual_data=form.manual_data.data or pdf_text,
+                          parsed_data=parsed_json,
                           uploader=current_user)
         db.session.add(green)
         db.session.commit()

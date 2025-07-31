@@ -2,7 +2,7 @@
 {% block content %}
 <h1>Green Data</h1>
 <table class="table">
-  <thead><tr><th>ID</th><th>Filename</th><th>Uploader</th><th>Date</th></tr></thead>
+  <thead><tr><th>ID</th><th>Filename</th><th>Uploader</th><th>Date</th><th>Parsed</th></tr></thead>
   <tbody>
   {% for g in greens %}
   <tr>
@@ -10,6 +10,7 @@
     <td>{{ g.filename or 'Manual Entry' }}</td>
     <td>{{ g.uploader.username }}</td>
     <td>{{ g.created_at.strftime('%Y-%m-%d') }}</td>
+    <td>{% if g.parsed_data %}Yes{% else %}No{% endif %}</td>
   </tr>
   {% endfor %}
   </tbody>
