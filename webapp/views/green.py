@@ -4,10 +4,10 @@ from werkzeug.utils import secure_filename
 import os
 import json
 
+import dataclasses
 from green_scraper import (
     extract_text_from_pdf,
     extract_structured_data_from_pdf_text_via_ai,
-    DataClassJSONEncoder,
 )
 
 from .. import db
@@ -30,22 +30,48 @@ def upload_green():
     ensure_upload_folder()
     if form.validate_on_submit():
         filename = None
-        parsed_json = None
         pdf_text = None
+        parsed_items = []
         if form.file.data:
             filename = secure_filename(form.file.data.filename)
             save_path = os.path.join(UPLOAD_FOLDER, filename)
             form.file.data.save(save_path)
             pdf_text = extract_text_from_pdf(save_path)
-            if pdf_text:
-                parsed_items = extract_structured_data_from_pdf_text_via_ai(pdf_text, filename)
-                if parsed_items:
-                    parsed_json = json.dumps(parsed_items, cls=DataClassJSONEncoder)
-        green = GreenData(filename=filename,
-                          manual_data=form.manual_data.data or pdf_text,
-                          parsed_data=parsed_json,
-                          uploader=current_user)
-        db.session.add(green)
+        text_source = form.manual_data.data or pdf_text
+        if text_source:
+            parsed_items = extract_structured_data_from_pdf_text_via_ai(text_source, filename or "manual")
+        if not parsed_items:
+            parsed_items = [None]
+
+        for item in parsed_items:
+            green = GreenData(
+                filename=filename,
+                manual_data=text_source,
+                uploader=current_user,
+            )
+            if item:
+                green.name = item.name
+                green.url = item.url
+                green.importer = item.importer
+                green.farm = item.farm
+                green.country = item.country
+                green.arrival = item.arrival
+                green.cupping_notes = item.cupping_notes
+                green.variety = item.variety
+                if item.quantity_available:
+                    green.quantity_available = json.dumps([
+                        dataclasses.asdict(q) for q in item.quantity_available
+                    ])
+                if item.size:
+                    green.size_units = item.size.units
+                    green.size_value = item.size.value
+                if item.price:
+                    green.price_units = item.price.units
+                    green.price_value = item.price.value
+                green.added = item.added
+                green.removed = item.removed
+            db.session.add(green)
+
         db.session.commit()
         flash('Green data uploaded.', 'success')
         return redirect(url_for('main.index'))
