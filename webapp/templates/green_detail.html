@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Green Data {{ green.id }}</h2>
+<p>Filename: {{ green.filename or 'Manual Entry' }}</p>
+<p>Uploaded by: {{ green.uploader.username }}</p>
+{% if green.manual_data %}
+<pre>{{ green.manual_data }}</pre>
+{% endif %}
+
+<h3>Tasting Notes</h3>
+<ul>
+{% for note in green.notes %}
+  <li>{{ note.author.username }}: {{ note.notes }}</li>
+{% endfor %}
+</ul>
+
+<form method="POST">
+  {{ form.hidden_tag() }}
+  <div class="mb-3">
+    {{ form.notes.label(class="form-label") }}
+    {{ form.notes(class="form-control", rows=4) }}
+  </div>
+  <button type="submit" class="btn btn-primary">Add Note</button>
+</form>
+{% endblock %}
